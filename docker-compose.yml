@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres-lakehouse
+    restart: always
+
+    environment:
+      POSTGRES_DB: lakehouse
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - ./data/source/postgres/init.sql:/docker-entrypoint-initdb.d/1_init.sql
+      - ./data/source/postgres/seed.sql:/docker-entrypoint-initdb.d/2_seed.sql
+      - ./data/source/postgres/csv:/data/csv
+
+    command: >
+      postgres
+      -c shared_buffers=128MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=64MB
+
+    networks:
+      - lakehouse-network
+
+networks:
+  lakehouse-network:
