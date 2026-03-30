@@ -64,7 +64,7 @@ services:
 
   # =========================
   # MINIO CLIENT (SETUP)
-  # Cria os buckets bronze/silver/gold automaticamente
+  # Cria os buckets bronze/silver/gold 
   # =========================
   minio-setup:
     image: minio/mc:latest
@@ -118,21 +118,21 @@ services:
       FS_S3A_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       FS_S3A_PATH_STYLE_ACCESS: "true"
       FS_S3A_IMPL: org.apache.hadoop.fs.s3a.S3AFileSystem
-      HIVE_METASTORE_WAREHOUSE_DIR: s3a://gold/warehouse
+      HIVE_METASTORE_WAREHOUSE_DIR: s3a://lakehouse/warehouse
     ports:
       - "9083:9083"
     volumes:
       - ./storage/hive/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 9083"]
-      interval: 20s
+      interval: 30s
       timeout: 10s
-      retries: 15
-      start_period: 60s
+      retries: 20
+      start_period: 120s
     networks:
       - lakehouse-network
 
-   # =========================
+  # =========================
   # SPARK
   # =========================
   spark:
@@ -160,12 +160,302 @@ services:
       - ./utils:/opt/spark/app/utils
       - ./data:/data
       - ./.env:/opt/spark/app/.env 
+      - ./storage/hive/hive-site.xml:/opt/spark/conf/hive-site.xml
     command: tail -f /dev/null
     networks:
       - lakehouse-network
+
+# =========================
+  # SPARK-STREAMING
+  # =========================
+  spark-streaming:
+    build:
+      context: .
+      dockerfile: infra/docker/spark/Dockerfile
+    container_name: spark-streaming
+    restart: on-failure
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      hive-metastore:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      PYTHONPATH: /opt/spark/app
+    volumes:
+      - ./ingestion:/opt/spark/app/ingestion
+      - ./config:/opt/spark/app/config
+      - ./utils:/opt/spark/app/utils
+      - ./data:/data
+      - ./storage/hive/hive-site.xml:/opt/spark/conf/hive-site.xml
+    env_file:
+      - .env
+    command: >
+      /opt/spark/bin/spark-submit
+      --conf spark.jars.ivy=/tmp/.ivy
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,io.delta:delta-core_2.12:2.4.0
+      /opt/spark/app/ingestion/streaming/spark/streaming_job.py
+    networks:
+      - lakehouse-network
+
+  # =========================
+  # ZOOKEEPER
+  # =========================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    restart: always
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - lakehouse-network
+
+  # =========================
+  # KAFKA
+  # =========================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+    networks:
+      - lakehouse-network
+
+  # =========================
+  # KAFKA UI
+  # =========================
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    restart: always
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: lakehouse-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    networks:
+      - lakehouse-network
+
+  # =========================
+  # KAFKA-PRODUCER
+  # =========================
+  kafka-producer:
+    build:
+      context: .
+      dockerfile: infra/docker/kafka/Dockerfile
+    container_name: kafka-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./ingestion:/opt/project/ingestion
+      - ./config:/opt/project/config
+      - ./utils:/opt/project/utils
+      - ./data:/data
+    env_file:
+    - .env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: csv-topic
+      KAFKA_TOPIC_DLQ: csv-topic-dlq
+      CSV_PATH: /data/source/csv
+      PYTHONPATH: /opt/project 
+    networks:
+      - lakehouse-network
   
+  # =========================
+  # AIRFLOW — banco de metadados
+  # =========================
+  postgres-airflow:
+    image: postgres:15
+    container_name: postgres-airflow
+    restart: always
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+    volumes:
+      - postgres-airflow-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - lakehouse-network
+
+  # =========================
+  # AIRFLOW — inicialização
+  # Roda uma unica vez: migrate + cria admin + registra conexões
+  # =========================
+  airflow-init:
+    build:
+      context: .
+      dockerfile: infra/docker/airflow/Dockerfile
+    container_name: airflow-init
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      PYTHONPATH: /opt/airflow
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags
+      - ./orchestration/plugins:/opt/airflow/plugins
+      - airflow-logs:/opt/airflow/logs
+      - ./config:/opt/airflow/config
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+ 
+        echo ">>> [1/4] Rodando migrations do banco Airflow..."
+        airflow db migrate
+ 
+        echo ">>> [2/4] Criando usuário admin..."
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname Admin \
+          --role Admin \
+          --email admin@lakehouse.local \
+        || echo "Usuário admin já existe, pulando."
+ 
+        echo ">>> [3/4] Registrando conexão postgres_lakehouse..."
+        airflow connections add postgres_lakehouse \
+          --conn-type postgres \
+          --conn-host postgres-lakehouse \
+          --conn-port 5432 \
+          --conn-schema lakehouse \
+          --conn-login admin \
+          --conn-password admin \
+        || echo "Conexão postgres_lakehouse já existe, pulando."
+ 
+        echo ">>> [4/4] Registrando conexão spark_container..."
+        airflow connections add spark_container \
+          --conn-type generic \
+          --conn-host spark \
+        || echo "Conexão spark_container já existe, pulando."
+ 
+        echo ">>> Airflow init concluído com sucesso."
+ 
+    networks:
+      - lakehouse-network
+  
+  # =========================
+  # AIRFLOW WEBSERVER
+  # =========================
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: infra/docker/airflow/Dockerfile
+    container_name: airflow-webserver
+    restart: always
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      PYTHONPATH: /opt/airflow
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags
+      - ./orchestration/plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - airflow-logs:/opt/airflow/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: webserver
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - lakehouse-network
+  
+  # =========================
+  # AIRFLOW SCHEDULER
+  # =========================
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: infra/docker/airflow/Dockerfile
+    container_name: airflow-scheduler
+    restart: always
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      PYTHONPATH: /opt/airflow
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags
+      - ./orchestration/plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - airflow-logs:/opt/airflow/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: scheduler
+    networks:
+      - lakehouse-network
+
 volumes:
   minio-data:
+    driver: local
+  postgres-airflow-data:
+    driver: local
+  airflow-logs:
     driver: local
 
 networks:

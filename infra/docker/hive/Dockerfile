@@ -17,8 +17,13 @@ RUN curl -fsSL -o /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar \
     && [ -s /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar ] \
     || (echo "ERRO: aws-sdk jar ausente" && exit 1)
 
-# hadoop-aws que já vem na imagem (3.3.6) via symlink — evita conflito de classloader
+# Usa o hadoop-aws que já vem na imagem via symlink — evita conflito de classloader
 RUN ln -sf /opt/hadoop/share/hadoop/tools/lib/hadoop-aws-3.3.6.jar \
            /opt/hive/lib/hadoop-aws-3.3.6.jar
 
-USER hive
+# Wrapper que aguarda o Postgres antes de chamar o entrypoint original
+COPY infra/docker/hive/wait-and-start.sh /wait-and-start.sh
+RUN chmod +x /wait-and-start.sh
+
+# Sobrescreve o entrypoint da imagem base
+ENTRYPOINT ["/wait-and-start.sh"]
