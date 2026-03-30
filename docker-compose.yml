@@ -151,8 +151,8 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       PYTHONPATH: /opt/spark/app
-      SPARK_DRIVER_MEMORY: 2G
-      SPARK_EXECUTOR_MEMORY: 2G
+      SPARK_DRIVER_MEMORY: 4G
+      SPARK_EXECUTOR_MEMORY: 4G
     volumes:
       - ./processing:/opt/spark/app/processing
       - ./ingestion:/opt/spark/app/ingestion
@@ -161,6 +161,7 @@ services:
       - ./data:/data
       - ./.env:/opt/spark/app/.env 
       - ./storage/hive/hive-site.xml:/opt/spark/conf/hive-site.xml
+    mem_limit: 4g
     command: tail -f /dev/null
     networks:
       - lakehouse-network
