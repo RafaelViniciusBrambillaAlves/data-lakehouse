@@ -11,13 +11,14 @@ def load_to_bronze(df: DataFrame, table_name: str, spark: SparkSession) -> str:
         logger.warning(f"DataFrame da tabela {table_name} está vazio. Ignorando.")
         return None
 
+    path = f"s3a://bronze/batch/{table_name}"
+
     logger.info(f"Iniciando ingestão da tabela {table_name} na Bronze")
 
     df = df \
         .withColumn("_ingestion_timestamp", current_timestamp()) \
         .withColumn("_source", lit("postgres"))
 
-    path = f"s3a://bronze/batch/{table_name}"
 
     (
         df.write

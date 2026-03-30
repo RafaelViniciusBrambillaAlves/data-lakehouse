@@ -16,6 +16,11 @@ def extract_table(spark: SparkSession, table: str) -> DataFrame:
         properties = get_connection_properties()
     )
 
-    logger.info(f"Tabela {table} -> {df.count()} linhas")
+    logger.info(f"Tabela {table} extraída com sucesso.")
+
+    if df.limit(1).count() == 0:
+        logger.warning(f"Tabela {table} retornou vazia.")
+    else:
+        logger.info(f"Tabela {table} extraída com sucesso.")
 
     return df 
