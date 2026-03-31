@@ -153,6 +153,8 @@ services:
       PYTHONPATH: /opt/spark/app
       SPARK_DRIVER_MEMORY: 4G
       SPARK_EXECUTOR_MEMORY: 4G
+    ports:
+      - "8888:8888"
     volumes:
       - ./processing:/opt/spark/app/processing
       - ./ingestion:/opt/spark/app/ingestion
@@ -162,7 +164,11 @@ services:
       - ./.env:/opt/spark/app/.env 
       - ./storage/hive/hive-site.xml:/opt/spark/conf/hive-site.xml
     mem_limit: 4g
-    command: tail -f /dev/null
+    command: >
+      bash -c "
+      pip install notebook==6.5.6 &&
+      jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --notebook-dir=/opt/spark/app/processing/spark/notebooks
+      "
     networks:
       - lakehouse-network
 
