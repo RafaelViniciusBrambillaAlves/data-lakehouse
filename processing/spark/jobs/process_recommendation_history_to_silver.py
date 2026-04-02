@@ -42,7 +42,7 @@ PREDICTED_RATING_BUCKETS = [
 # =============================
 def read_bronze(spark: SparkSession) -> DataFrame:
     
-    logger.info(f"Lendo tabela user_recommendation_history da Bronze: {BRONZE_HISTORY_PATH}")
+    logger.info("Lendo tabela user_recommendation_history da Bronze: %s", BRONZE_HISTORY_PATH)
 
     df = spark.read.format("delta").load(BRONZE_HISTORY_PATH)
 
@@ -51,7 +51,7 @@ def read_bronze(spark: SparkSession) -> DataFrame:
     if count == 0:
         raise ValueError("Tabela user_recommendation_history está vazia")
     
-    logger.info(f"Bronze carregada: {count} registros")
+    logger.info("Bronze carregada: %d registros", count)
 
     return df
 
@@ -142,7 +142,7 @@ def build_cleaned(df: DataFrame) -> DataFrame:
     total_out = df_cleaned.count()
     dropped = total_in - total_out
 
-    logger.info(f"CLEANED — entrada: {total_in} | saída: {total_out} | descartados: {dropped}")
+    logger.info("CLEANED — entrada: %d | saída: %d | descartados: %d", total_in, total_out, dropped)
 
     return df_cleaned
 
@@ -209,7 +209,7 @@ def build_features(df_cleaned: DataFrame) -> DataFrame:
         )
     )
 
-    logger.info(f"ENRICHED: {df_features.count()} registros gerados")
+    logger.info("ENRICHED — %d registros gerados", df_features.count())
 
     return df_features
 
@@ -219,7 +219,7 @@ def build_features(df_cleaned: DataFrame) -> DataFrame:
 # =============================
 def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
     
-    logger.info(f"Escrevendo CLEANED em: {SILVER_CLEANED_PATH}")
+    logger.info("Escrevendo CLEANED em: %s", SILVER_CLEANED_PATH)
 
     _ensure_database(spark, SILVER_DB)
 
@@ -251,7 +251,7 @@ def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
 
 def write_features(spark: SparkSession, df: DataFrame) -> None:
      
-    logger.info(f"Escrevendo ENRICHED em: {SILVER_ENRICHED_PATH}")
+    logger.info("Escrevendo ENRICHED em: %s", SILVER_ENRICHED_PATH)
 
     _ensure_database(spark, SILVER_DB)
 
@@ -311,7 +311,7 @@ def _create_delta_table_if_not_exists(
             LOCATION '{location}'
         """)
 
-        logger.info("Tabela Delta criada: {table}")
+        logger.info("Tabela Delta criada: %s", table)
 
 
 def _delta_table(spark: SparkSession, path: str):

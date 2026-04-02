@@ -49,17 +49,16 @@ RATING_CATEGORIES = [
 # =============================
 def read_bronze(spark: SparkSession) -> DataFrame:
     
-    logger.info(f"Lendo tabela ratings da Bronze: {BRONZE_RATINGS_PATH}")
+    logger.info("Lendo tabela ratings da Bronze: %s", BRONZE_RATINGS_PATH)
 
     df = spark.read.format("delta").load(BRONZE_RATINGS_PATH)
 
-    # count = df.count()
+    count = df.count()
 
-    # if count == 0:
-    #     raise ValueError("Tabela ratings está vazia")
+    if count == 0:
+        raise ValueError("Tabela ratings está vazia")
     
-    # logger.info(f"Bronze carregada: {count} registros")
-    logger.info(f"Bronze carregada")
+    logger.info("Bronze carregada: %d registros", count)
 
     return df
 
@@ -137,12 +136,12 @@ def build_cleaned(df: DataFrame) -> DataFrame:
         F.current_timestamp().alias("processed_timestamp")
     )
 
-    # total_in = df.count()
-    # total_out = df_cleaned.count()
-    # dropped = total_in - total_out
+    total_in = df.count()
+    total_out = df_cleaned.count()
+    dropped = total_in - total_out
 
-    # logger.info(f"CLEANED — entrada: {total_in} | saída: {total_out} | descartados: {dropped}")
-    logger.info("--- CLEANED ---")
+    logger.info("CLEANED — entrada: %d | saída: %d | descartados: %d", total_in, total_out, dropped)
+    # logger.info("--- CLEANED ---")
 
     return df_cleaned
 
@@ -217,8 +216,8 @@ def build_features(df_cleaned: DataFrame) -> DataFrame:
         )
     )
 
-    # logger.info(f"ENRICHED: {df_features.count()} registros gerados")
-    logger.info("--- ENRICHED ---")
+    logger.info("ENRICHED — %d registros gerados", df_features.count())
+    # logger.info("--- ENRICHED ---")
 
     return df_features
 
@@ -228,7 +227,7 @@ def build_features(df_cleaned: DataFrame) -> DataFrame:
 # =============================
 def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
     
-    logger.info(f"Escrevendo CLEANED em: {SILVER_CLEANED_PATH}")
+    logger.info("Escrevendo CLEANED em: %s", SILVER_CLEANED_PATH)
 
     _ensure_database(spark, SILVER_DB)
 
@@ -260,7 +259,7 @@ def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
 
 def write_features(spark: SparkSession, df: DataFrame) -> None:
     
-    logger.info(f"Escrevendo ENRICHED em: {SILVER_ENRICHED_PATH}")
+    logger.info("Escrevendo ENRICHED em: %s", SILVER_ENRICHED_PATH)
 
     _ensure_database(spark, SILVER_DB)
 
@@ -312,15 +311,15 @@ def _create_delta_table_if_not_exists(
         if partition_cols:
             writer = writer.partitionBy(*partition_cols)
 
-        writer.save(location)
+    writer.save(location)
 
-        spark.sql(f"""
-            CREATE TABLE IF NOT EXISTS {table}
-            USING DELTA
-            LOCATION '{location}'
-        """)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS {table}
+        USING DELTA
+        LOCATION '{location}'
+    """)
 
-        logger.info(f"Tabela Delta criada: {table}")
+    logger.info("Tabela Delta criada: %s", table)
 
 
 def _delta_table(spark: SparkSession, path: str):

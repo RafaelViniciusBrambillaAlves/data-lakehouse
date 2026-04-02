@@ -34,7 +34,7 @@ MAX_VALID_YEAR = 2028
 # =============================
 def read_bronze(spark: SparkSession) -> DataFrame:
 
-    logger.info(f"Lendo tabela movies da Bronze: {BRONZE_MOVIES_PATH}")
+    logger.info("Lendo tabela movies da Bronze: %s", BRONZE_MOVIES_PATH)
 
     df = spark.read.format("delta").load(BRONZE_MOVIES_PATH)
 
@@ -43,7 +43,8 @@ def read_bronze(spark: SparkSession) -> DataFrame:
     if count == 0:
         raise ValueError("Tabela movies está vazia")
     
-    logger.info(f"Bronze carregada: {count} registros")
+    logger.info("Bronze carregada: %d registros", count)
+
     return df
 
 
@@ -115,7 +116,7 @@ def build_cleaned(df: DataFrame) -> DataFrame:
     total_out = df_cleaned.count()
     dropped = total_in - total_out
 
-    logger.info(f"CLEANED — entrada: {total_in} | saída: {total_out} | descartados: {dropped}")
+    logger.info("CLEANED — entrada: %d | saída: %d | descartados: %d", total_in, total_out, dropped)
 
     return df_cleaned
 
@@ -143,7 +144,7 @@ def build_genres(df_cleaned: DataFrame) -> DataFrame:
         .distinct()
     )
 
-    logger.info(f"GENRES: {df_genres.count()} pares (movie_id, genre) gerados")
+    logger.info("GENRES: %d pares (movie_id, genre) gerados", df_genres.count())
 
     return df_genres
 
@@ -153,7 +154,7 @@ def build_genres(df_cleaned: DataFrame) -> DataFrame:
 # =============================
 def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
 
-    logger.info(f"Escrevendo CLEANED em: {SILVER_CLEANED_PATH}")
+    logger.info("Escrevendo CLEANED em: %s", SILVER_CLEANED_PATH)
 
     _ensure_database(spark, SILVER_DB)
 
@@ -182,7 +183,7 @@ def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
 
 def write_genres(spark: SparkSession, df: DataFrame) -> None:
     
-    logger.info(f"Escrevendo GENRES em: {SILVER_ENRICHED_PATH}")
+    logger.info("Escrevendo GENRES em: %s", SILVER_ENRICHED_PATH)
 
     _ensure_database(spark, SILVER_DB)
 
@@ -237,7 +238,7 @@ def _create_delta_table_if_not_exists(
             LOCATION '{location}'
         """)
 
-        logger.info(f"Tabela Delta criada: {table}")
+        logger.info("Tabela Delta criada: %s", table)
 
 
 def _delta_table(spark: SparkSession, path: str):
