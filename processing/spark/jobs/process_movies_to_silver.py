@@ -1,6 +1,8 @@
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import IntegerType, StringType, StructField, StructType, TimestampType
+from pyspark.sql.types import IntegerType, StringType
+from delta.tables import DeltaTable
+from pyspark.sql.window import Window
 
 import traceback
 from typing import List, Optional
@@ -10,19 +12,22 @@ from utils.logger import get_logger
 
 logger = get_logger("silver-movies")
 
-BRONZE_MOVIES_PATH   = "s3a://bronze/batch/movies"
-SILVER_CLEANED_PATH  = "s3a://silver/cleaned/movies"
+BRONZE_MOVIES_PATH = "s3a://bronze/batch/movies"
+SILVER_CLEANED_PATH = "s3a://silver/cleaned/movies"
 SILVER_ENRICHED_PATH = "s3a://silver/enriched/movie_genres"
- 
+
+SILVER_DB = "silver"
+CLEANED_TABLE = f"{SILVER_DB}.movies_cleaned"
+GENRES_TABLE = f"{SILVER_DB}.movie_genres"
+
+# Regex Titulo e Ano
 TITLE_YEAR_PATTERN = r"^(.*)\s\(\d{4}\)$"
-YEAR_PATTERN       = r"\((\d{4})\)"
- 
-SILVER_DB          = "silver"
-CLEANED_TABLE      = f"{SILVER_DB}.movies_cleaned"
-GENRES_TABLE       = f"{SILVER_DB}.movie_genres"
- 
+YEAR_PATTERN = r"\((\d{4})\)"
+
+# Ano Maximo e Minimo
 MIN_VALID_YEAR = 1888
 MAX_VALID_YEAR = 2028
+
 
 # =============================
 # READ
@@ -40,6 +45,7 @@ def read_bronze(spark: SparkSession) -> DataFrame:
     
     logger.info(f"Bronze carregada: {count} registros")
     return df
+
 
 # =============================
 # TRANSFORM — CLEANED
@@ -80,8 +86,8 @@ def build_cleaned(df: DataFrame) -> DataFrame:
 
     # Remover movies duplicados, mantendo os mais recentes 
     window = (
-        __import__("pyspark.sql.window", fromlist = ["Windows"])
-        .Window.partitionBy("movie_id")
+        Window
+        .partitionBy("movie_id")
         .orderBy(F.col("_ingestion_timestamp").desc())
     ) 
     df_dedup = (
@@ -141,6 +147,7 @@ def build_genres(df_cleaned: DataFrame) -> DataFrame:
 
     return df_genres
 
+
 # =============================
 # WRITE
 # =============================
@@ -172,6 +179,7 @@ def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
 
     logger.info("CLEANED escrita com sucesso")
 
+
 def write_genres(spark: SparkSession, df: DataFrame) -> None:
     
     logger.info(f"Escrevendo GENRES em: {SILVER_ENRICHED_PATH}")
@@ -190,7 +198,8 @@ def write_genres(spark: SparkSession, df: DataFrame) -> None:
         .alias("target")
         .merge(
             df.alias("source"),
-            "target.movie_id = source.movie_id AND target.genre = source.genre",
+            "target.movie_id = source.movie_id " \
+            "AND target.genre = source.genre",
         )
         .whenNotMatchedInsertAll()
         .execute()
@@ -204,6 +213,7 @@ def write_genres(spark: SparkSession, df: DataFrame) -> None:
 def _ensure_database(spark: SparkSession, db: str) -> None:
     spark.sql(f"CREATE DATABASE IF NOT EXISTS {db}")
 
+
 def _create_delta_table_if_not_exists(
     spark: SparkSession,
     df: DataFrame,
@@ -211,25 +221,26 @@ def _create_delta_table_if_not_exists(
     location: str,
     partition_cols: Optional[List[str]] = None
 ) -> None:
-    
-   from delta.tables import DeltaTable
 
    if not DeltaTable.isDeltaTable(spark, location):
 
-        writer = (
-            df.write
-            .format("delta")
-            .mode("overwrite")
-        )
+        writer = df.write.format("delta").mode("overwrite")
 
         if partition_cols:
             writer = writer.partitionBy(*partition_cols)
 
         writer.save(location)
 
+        spark.sql(f"""
+            CREATE TABLE IF NOT EXISTS {table}
+            USING DELTA 
+            LOCATION '{location}'
+        """)
+
+        logger.info(f"Tabela Delta criada: {table}")
+
+
 def _delta_table(spark: SparkSession, path: str):
-    """Retorna um DeltaTable a partir do path"""
-    from delta.tables import DeltaTable 
     return DeltaTable.forPath(spark, path)
 
 
@@ -244,12 +255,11 @@ def process_movies_to_silver(spark: SparkSession) -> None:
     df_cleaned = build_cleaned(df_bronze)
     df_genres = build_genres(df_cleaned)
 
-    df_cleaned_final = df_cleaned.drop("genres_raw")
-
-    write_cleaned(spark, df_cleaned_final)
+    write_cleaned(spark, df_cleaned.drop("genres_raw"))
     write_genres(spark, df_genres)
 
     logger.info("--- Pipeline finalizado com sucesso ---")
+
 
 # =============================
 # MAIN
