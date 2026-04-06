@@ -20,7 +20,7 @@ def create_spark_session(app_name: str = "lakehouse_batch") -> SparkSession:
         # Hive Support
         .enableHiveSupport() 
         .config("hive.metastore.uris", "thrift://hive-metastore:9083")
-        .config("spark.sql.warehouse.dir", "s3a://gold/warehouse")
+        # .config("spark.sql.warehouse.dir", "s3a://gold/warehouse")
 
         # Delta
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
