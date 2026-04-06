@@ -2,7 +2,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType, DoubleType, StringType, DateType, TimestampType
 from delta.tables import DeltaTable
-from pyspark.sql.window import Window
+import time
 
 import traceback
 
@@ -21,6 +21,9 @@ SILVER_DB = "silver"
 CLEANED_TABLE  = f"{SILVER_DB}.belief_cleaned"
 ENRICHED_TABLE = f"{SILVER_DB}.belief_features"
 
+# Checkpoint 
+CHECKPOINT_PROPERTY = "silver.last_bronze_version"
+
 # Usada para não respondeu
 SENTINEL_VALUE = -1.0
 
@@ -29,22 +32,70 @@ HIGH_CONFIDENCE_THRESHOLD = 4.0
 
 
 # =============================
-# READ
+# CHECKPOINT 
 # =============================
-def read_bronze(spark: SparkSession) -> DataFrame:
+def _get_last_processed_version(spark: SparkSession) -> Optional[int]:
 
-    logger.info("Lendo tabela belief_data da Bronze: %s", BRONZE_BELIEF_PATH)
+    try:
+        props = spark.sql(f"SHOW TBLPROPERTIES {CLEANED_TABLE}").collect()
 
-    df = spark.read.format("delta").load(BRONZE_BELIEF_PATH)
+        for row in props:
 
-    count = df.count()
+            if row["key"] == CHECKPOINT_PROPERTY:
 
-    if count == 0:
-        raise ValueError("Tabela belief_data está vazia")
+                version = int(row["value"])
+
+                logger.info("Checkpoint encontrado: última versão Bronze processada: %d", version)
+                return version
+        
+        logger.info("Propriedade '%s' não encontrada: carga inicial.", CHECKPOINT_PROPERTY)
+        return None
     
-    logger.info("Bronze carregada: %d registros", count)
+    except Exception:
 
-    return df
+        logger.info("Tabela %s ainda não existe: carga inicial.", CLEANED_TABLE)
+        return None
+    
+
+def _save_checkpoint(spark: SparkSession, bronze_version: int) -> None:
+
+    spark.sql(F"""
+        ALTER TABLE {CLEANED_TABLE}
+        SET TBLPROPERTIES ('{CHECKPOINT_PROPERTY}' = '{bronze_version}')
+    """)
+    logger.info("Checkpoint salvo: versão Bronze: %d", bronze_version)
+
+def _get_bronze_version(spark: SparkSession) -> int:
+
+    return (
+        DeltaTable.forPath(spark, BRONZE_BELIEF_PATH)
+        .history(1)
+        .select("version")
+        .collect()[0]["version"]
+    )
+
+
+# =============================
+# READ INCREMENTAL 
+# =============================
+def read_incremental(spark: SparkSession, from_version: Optional[int]) -> DataFrame:
+
+    if from_version is None:
+
+        logger.info("Carga inicial: lendo snapshot completo da Bronze")
+        return spark.read.format("delta").load(BRONZE_BELIEF_PATH)
+    
+    logger.info("Leitura incremental: Bronze versões > %d", from_version)
+
+    return (
+        spark.read
+        .format("delta")
+        .option("readChangeFeed", "true")
+        .option("startingVersion", from_version + 1)
+        .load(BRONZE_BELIEF_PATH)
+        .filter(F.col("_change_type").isin("insert", "update_postimage"))
+        .drop("_change_type", "_commit_version", "_commit_timestamp")
+    )
 
 
 # =============================
@@ -107,18 +158,7 @@ def build_cleaned(df: DataFrame) -> DataFrame:
     )
 
     # Deduplicação (user_id, movie_id, event_timestamp
-    window = (
-        Window
-        .partitionBy("user_id", "movie_id", "event_timestamp")
-        .orderBy(F.col("ingestion_timestamp").desc())
-    )
-
-    df_dedup = (
-        df_valid
-        .withColumn("_rn", F.row_number().over(window))
-        .filter(F.col("_rn") == 1)
-        .drop("_rn")
-    )
+    df_dedup = df_valid.dropDuplicates(["user_id", "movie_id", "event_timestamp"])
 
     # Tipagem final
 
@@ -138,12 +178,6 @@ def build_cleaned(df: DataFrame) -> DataFrame:
         F.col("source_system").cast(StringType()).alias("source_system"),
         F.current_timestamp().alias("processed_timestamp")        
     )
-
-    total_in = df.count()
-    total_out = df_cleaned.count()
-    dropped = total_in - total_out
-
-    logger.info("CLEANED — entrada: %d | saída: %d | descartados: %d", total_in, total_out, dropped)
 
     return df_cleaned
 
@@ -194,8 +228,6 @@ def build_features(df_cleaned: DataFrame) -> DataFrame:
         )
     )
 
-    logger.info("ENRICHED: %d registros gerados", df_features.count())
-
     return df_features
 
 
@@ -217,19 +249,10 @@ def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
 
     # (user_id, movie_id, event_timestamp)
     (
-        _delta_table(spark, SILVER_CLEANED_PATH)
-        .alias("target")
-        .merge(
-            df.alias("source"),
-            """
-            target.user_id = source.user_id
-            AND target.movie_id = source.movie_id
-            AND target.event_timestamp = source.event_timestamp
-            """
-        )
-        .whenMatchedUpdateAll()
-        .whenNotMatchedInsertAll()
-        .execute()
+        df.write
+        .format("delta")
+        .mode("append")
+        .save(SILVER_CLEANED_PATH)
     )
 
     logger.info("CLEANED escrita com sucesso")
@@ -250,20 +273,33 @@ def write_features(spark: SparkSession, df: DataFrame) -> None:
     )
 
     # (user_id, movie_id, event_timestamp)
-    (
-        _delta_table(spark, SILVER_ENRICHED_PATH)
-        .alias("target")
-        .merge(
-            df.alias("source"),
-            """
-            target.user_id = source.user_id
-            AND target.movie_id = source.movie_id
-            AND target.event_timestamp = source.event_timestamp
-            """
+    date_range = (
+        df
+        .select(
+            F.min("event_date").alias("min_date"),
+            F.max("event_date").alias("max_date")
         )
-        .whenMatchedUpdateAll()
-        .whenNotMatchedInsertAll()
-        .execute()
+        .collect()[0]
+    )
+
+    if date_range["min_date"] is None:
+
+        logger.warning("Lote sem event_date válido: escrita ENRICHED ignorada")
+        return 
+    
+    min_date = date_range["min_date"]
+    max_date = date_range["max_date"]
+    replace_condition = f"event_date >= '{min_date}' AND event_date <= '{max_date}'"
+
+    logger.info("replaceWhere: %s", replace_condition)
+
+    (
+        df.write
+        .format("delta")
+        .mode("overwrite")
+        .option("replaceWhere", replace_condition)
+        .partitionBy("event_date")
+        .save(SILVER_ENRICHED_PATH)
     )
 
     logger.info("ENRICHED escrita com sucesso")
@@ -311,17 +347,45 @@ def _delta_table(spark: SparkSession, path: str):
 # ORCHESTRATION
 # =============================
 def process_belief_to_silver(spark: SparkSession) -> None:
+
+    start_time = time.time()
     
     logger.info("--- Iniciando pipeline belief Bronze -> Silver ---")
 
-    df_bronze = read_bronze(spark)
-    df_cleaned = build_cleaned(df_bronze)
+    last_version = _get_last_processed_version(spark)
+    current_version = _get_bronze_version(spark)
+
+    if last_version is not None and last_version >= current_version:
+        logger.info(
+            "Bronze na versão %d já processada: nenhum dado novo. Pipeline encerrado.",
+            current_version,
+        )
+        return 
+    
+    logger.info(
+        "Processando Bronze versões %s -> %d",
+        f"{last_version + 1}" if last_version is not None else "inicial",
+        current_version,
+    )
+
+    df_incremental = read_incremental(spark, last_version)
+
+    if df_incremental.isEmpty():
+        logger.info("Lote incremental vazio. Pipeline encerrado")
+        return 
+
+    df_cleaned = build_cleaned(df_incremental)
     df_features = build_features(df_cleaned)
 
     write_cleaned(spark, df_cleaned)
     write_features(spark, df_features)
 
-    logger.info("--- Pipeline finalizado com sucesso ---")
+    _save_checkpoint(spark, current_version)
+
+    end_time = time.time()
+    duration = end_time - start_time
+
+    logger.info(f"--- Pipeline finalizado com sucesso em {duration:.2f} segundos ---")
 
 
 # =============================
