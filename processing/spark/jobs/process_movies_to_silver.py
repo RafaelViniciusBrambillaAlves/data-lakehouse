@@ -2,7 +2,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType, StringType
 from delta.tables import DeltaTable
-from pyspark.sql.window import Window
+import time
 
 import traceback
 from typing import List, Optional
@@ -20,6 +20,9 @@ SILVER_DB = "silver"
 CLEANED_TABLE = f"{SILVER_DB}.movies_cleaned"
 GENRES_TABLE = f"{SILVER_DB}.movie_genres"
 
+# Checkpoint 
+CHECKPOINT_PROPERTY = "silver.last_bronze_version"
+
 # Regex Titulo e Ano
 TITLE_YEAR_PATTERN = r"^(.*)\s\(\d{4}\)$"
 YEAR_PATTERN = r"\((\d{4})\)"
@@ -30,22 +33,71 @@ MAX_VALID_YEAR = 2028
 
 
 # =============================
-# READ
+# CHECKPOINT 
 # =============================
-def read_bronze(spark: SparkSession) -> DataFrame:
-
-    logger.info("Lendo tabela movies da Bronze: %s", BRONZE_MOVIES_PATH)
-
-    df = spark.read.format("delta").load(BRONZE_MOVIES_PATH)
-
-    count = df.count()
-
-    if count == 0:
-        raise ValueError("Tabela movies está vazia")
+def _get_last_processed_version(spark: SparkSession) -> Optional[int]:
     
-    logger.info("Bronze carregada: %d registros", count)
+    try:
+        props = spark.sql("SHOW TBLPROPERTIES {CLEANED_TABLE}").collect()
 
-    return df
+        for row in props:
+            
+            if row["key"] == CHECKPOINT_PROPERTY:
+
+                version = int(row["value"])
+
+                logger.info("Checkpoint encontrado — última versão Bronze processada: %d", version)
+                return version 
+        
+        logger.info("Propriedade '%s' não encontrada — carga inicial.", CHECKPOINT_PROPERTY)
+        return None
+    
+    except Exception:
+
+        logger.info("Tabela %s ainda não existe — carga inicial.", CLEANED_TABLE)
+        return None 
+    
+
+def _save_checkpoint(spark: SparkSession, bronze_version: int) -> None:
+
+    spark.sql(f"""
+        ALTER TABLE {CLEANED_TABLE}
+        SET TBLPROPERTIES ('{CHECKPOINT_PROPERTY}' == '{bronze_version}')
+    """)
+    logger.info("Checkpoint salvo — versão Bronze: %d", bronze_version)
+
+
+def _get_bronze_version(spark: SparkSession) -> int:
+
+    return (
+        DeltaTable.forPath(spark, BRONZE_MOVIES_PATH)
+        .history(1)
+        .select("version")
+        .collect()[0]["version"]
+    )
+
+
+# =============================
+# READ INCREMENTAL
+# =============================
+def read_incremental(spark: SparkSession, from_version: int) -> DataFrame:
+
+    if from_version is None:
+
+        logger.info("Carga inicial: lendo snapshot completo da Bronze.")
+        return spark.read.format("delta").load(BRONZE_MOVIES_PATH)
+
+    logger.info("Leitura incremental: Bronze versões > %d", from_version)
+
+    return (
+        spark.read
+        .format("delta")
+        .option("readChangeVersion", "true")
+        .option("startingVersion", from_version + 1)
+        .load(BRONZE_MOVIES_PATH)
+        .filter(F.col("_change_type").isin("insert", "update_postimage"))
+        .drop("_change_type", "_commit_version", "_commit_timestamp")
+    )
 
 
 # =============================
@@ -86,17 +138,7 @@ def build_cleaned(df: DataFrame) -> DataFrame:
     df_filled = df_valid_year.fillna({"genres_raw": "unknown"})
 
     # Remover movies duplicados, mantendo os mais recentes 
-    window = (
-        Window
-        .partitionBy("movie_id")
-        .orderBy(F.col("_ingestion_timestamp").desc())
-    ) 
-    df_dedup = (
-        df_filled
-        .withColumn("_rn", F.row_number().over(window))
-        .filter(F.col("_rn") == 1)
-        .drop("_rn")
-    )
+    df_dedup = df_filled.dropDuplicates(["movie_id"])
 
     # Tipar as colunas finais
     df_cleaned = (
@@ -111,12 +153,6 @@ def build_cleaned(df: DataFrame) -> DataFrame:
             F.current_timestamp().alias("processed_timestamp")
         )
     )
-
-    total_in = df.count()
-    total_out = df_cleaned.count()
-    dropped = total_in - total_out
-
-    logger.info("CLEANED — entrada: %d | saída: %d | descartados: %d", total_in, total_out, dropped)
 
     return df_cleaned
 
@@ -144,8 +180,6 @@ def build_genres(df_cleaned: DataFrame) -> DataFrame:
         .distinct()
     )
 
-    logger.info("GENRES: %d pares (movie_id, genre) gerados", df_genres.count())
-
     return df_genres
 
 
@@ -167,15 +201,10 @@ def write_cleaned(spark: SparkSession, df: DataFrame) -> None:
     )
 
     (
-        _delta_table(spark, SILVER_CLEANED_PATH)
-        .alias("target")
-        .merge(
-            df.alias("source"),
-            "target.movie_id = source.movie_id",
-        )
-        .whenMatchedUpdateAll()
-        .whenNotMatchedInsertAll()
-        .execute()
+        df.write
+        .format("delta")
+        .mode("append")
+        .save(SILVER_CLEANED_PATH)
     )
 
     logger.info("CLEANED escrita com sucesso")
@@ -199,8 +228,7 @@ def write_genres(spark: SparkSession, df: DataFrame) -> None:
         .alias("target")
         .merge(
             df.alias("source"),
-            "target.movie_id = source.movie_id " \
-            "AND target.genre = source.genre",
+            "target.movie_id = source.movie_id AND target.genre = source.genre",
         )
         .whenNotMatchedInsertAll()
         .execute()
@@ -249,17 +277,46 @@ def _delta_table(spark: SparkSession, path: str):
 # ORCHESTRATION
 # =============================
 def process_movies_to_silver(spark: SparkSession) -> None:
+
+    start_time = time.time()
     
     logger.info("--- Iniciando pipeline movies Bronze -> Silver ---")
 
-    df_bronze = read_bronze(spark)
-    df_cleaned = build_cleaned(df_bronze)
+    last_version = _get_last_processed_version(spark)
+    current_version = _get_bronze_version(spark)
+
+    if last_version is not None and last_version >= current_version:
+        logger.info(
+            "Bronze na versão %d já processada: nenhum dado novo. Pipeline encerrado.",
+            current_version,
+        )
+        return
+    
+    logger.info(
+        "Processando Bronze versões %s -> %d",
+        f"{last_version + 1}" if last_version is not None else "inicial",
+        current_version,
+    )
+
+
+
+    df_incremental = read_incremental(spark, last_version)
+
+    if df_incremental.isEmpty():
+        logger.info("Lote incremental vazio. Pipeline encerrado")
+
+    df_cleaned = build_cleaned(df_incremental)
     df_genres = build_genres(df_cleaned)
 
     write_cleaned(spark, df_cleaned.drop("genres_raw"))
     write_genres(spark, df_genres)
 
-    logger.info("--- Pipeline finalizado com sucesso ---")
+    _save_checkpoint(spark, current_version)
+
+    end_time = time.time()
+    duration = end_time - start_time
+
+    logger.info(f"--- Pipeline finalizado com sucesso em {duration:.2f} segundos ---")
 
 
 # =============================
