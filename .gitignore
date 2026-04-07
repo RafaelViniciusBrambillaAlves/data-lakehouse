@@ -9,4 +9,4 @@ __init__.py
 __pycache__
 .env
 README_DATA.txt
-explore_bronze-checkpoint.ipynb
+.ipynb_checkpoints
