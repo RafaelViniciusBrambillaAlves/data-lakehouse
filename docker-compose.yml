@@ -16,7 +16,6 @@ services:
       - ./data/source/postgres/init.sql:/docker-entrypoint-initdb.d/1_init.sql
       - ./data/source/postgres/seed.sql:/docker-entrypoint-initdb.d/2_seed.sql
       - ./data/source/postgres/csv:/data/csv
-      # Inicializa Hive Metastore 
       - ./storage/hive/init_metastore.sql:/docker-entrypoint-initdb.d/3_hive_metastore.sql
     command: >
       postgres
@@ -44,8 +43,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_SITE_NAME: lakehouse
     ports:
-      - "9000:9000"   # API S3
-      - "9001:9001"   # Console Web UI
+      - "9000:9000"
+      - "9001:9001"
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"
@@ -64,7 +63,6 @@ services:
 
   # =========================
   # MINIO CLIENT (SETUP)
-  # Cria os buckets bronze/silver/gold 
   # =========================
   minio-setup:
     image: minio/mc:latest
@@ -105,14 +103,12 @@ services:
         condition: service_healthy
     environment:
       SERVICE_NAME: metastore
-      # Backend: PostgreSQL
       DB_DRIVER: postgres
       SERVICE_OPTS: >-
         -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
         -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres-lakehouse:5432/hive_metastore
         -Djavax.jdo.option.ConnectionUserName=admin
         -Djavax.jdo.option.ConnectionPassword=admin
-      # S3/MinIO como storage
       FS_S3A_ENDPOINT: http://minio:9000
       FS_S3A_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       FS_S3A_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -133,7 +129,7 @@ services:
       - lakehouse-network
 
   # =========================
-  # SPARK
+  # SPARK (Jupyter / desenvolvimento)
   # =========================
   spark:
     build:
@@ -161,7 +157,7 @@ services:
       - ./config:/opt/spark/app/config
       - ./utils:/opt/spark/app/utils
       - ./data:/data
-      - ./.env:/opt/spark/app/.env 
+      - ./.env:/opt/spark/app/.env
       - ./storage/hive/hive-site.xml:/opt/spark/conf/hive-site.xml
     mem_limit: 4g
     command: >
@@ -172,7 +168,7 @@ services:
     networks:
       - lakehouse-network
 
-# =========================
+  # =========================
   # SPARK-STREAMING
   # =========================
   spark-streaming:
@@ -237,10 +233,8 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
@@ -248,7 +242,6 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
-
     networks:
       - lakehouse-network
 
@@ -286,16 +279,16 @@ services:
       - ./utils:/opt/project/utils
       - ./data:/data
     env_file:
-    - .env
+      - .env
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: csv-topic
       KAFKA_TOPIC_DLQ: csv-topic-dlq
       CSV_PATH: /data/source/csv
-      PYTHONPATH: /opt/project 
+      PYTHONPATH: /opt/project
     networks:
       - lakehouse-network
-  
+
   # =========================
   # AIRFLOW — banco de metadados
   # =========================
@@ -319,7 +312,7 @@ services:
 
   # =========================
   # AIRFLOW — inicialização
-  # Roda uma unica vez: migrate + cria admin + registra conexões
+  # Roda uma única vez: migrate + cria admin + registra conexões
   # =========================
   airflow-init:
     build:
@@ -338,6 +331,8 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
       PYTHONPATH: /opt/airflow
+      # Expõe o caminho do projeto no host para bind mounts dentro da DAG
+      AIRFLOW_PROJ_DIR: ${AIRFLOW_PROJ_DIR:-.}
     volumes:
       - ./orchestration/dags:/opt/airflow/dags
       - ./orchestration/plugins:/opt/airflow/plugins
@@ -347,11 +342,11 @@ services:
     command:
       - |
         set -e
- 
-        echo ">>> [1/4] Rodando migrations do banco Airflow..."
+
+        echo ">>> [1/5] Rodando migrations do banco Airflow..."
         airflow db migrate
- 
-        echo ">>> [2/4] Criando usuário admin..."
+
+        echo ">>> [2/5] Criando usuário admin..."
         airflow users create \
           --username admin \
           --password admin \
@@ -360,8 +355,8 @@ services:
           --role Admin \
           --email admin@lakehouse.local \
         || echo "Usuário admin já existe, pulando."
- 
-        echo ">>> [3/4] Registrando conexão postgres_lakehouse..."
+
+        echo ">>> [3/5] Registrando conexão postgres_lakehouse..."
         airflow connections add postgres_lakehouse \
           --conn-type postgres \
           --conn-host postgres-lakehouse \
@@ -370,18 +365,24 @@ services:
           --conn-login admin \
           --conn-password admin \
         || echo "Conexão postgres_lakehouse já existe, pulando."
- 
-        echo ">>> [4/4] Registrando conexão spark_container..."
+
+        echo ">>> [4/5] Registrando conexão spark_container..."
         airflow connections add spark_container \
           --conn-type generic \
           --conn-host spark \
         || echo "Conexão spark_container já existe, pulando."
- 
+
+        echo ">>> [5/5] Registrando conexão aws_minio (S3KeySensor)..."
+        airflow connections add aws_minio \
+          --conn-type aws \
+          --conn-extra "{\"endpoint_url\": \"http://minio:9000\", \"aws_access_key_id\": \"${MINIO_ROOT_USER:-minioadmin}\", \"aws_secret_access_key\": \"${MINIO_ROOT_PASSWORD:-minioadmin}\"}" \
+        || echo "Conexão aws_minio já existe, pulando."
+
         echo ">>> Airflow init concluído com sucesso."
- 
+
     networks:
       - lakehouse-network
-  
+
   # =========================
   # AIRFLOW WEBSERVER
   # =========================
@@ -406,6 +407,7 @@ services:
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
       PYTHONPATH: /opt/airflow
+      AIRFLOW_PROJ_DIR: ${AIRFLOW_PROJ_DIR:-.}
     ports:
       - "8081:8080"
     volumes:
@@ -413,7 +415,13 @@ services:
       - ./orchestration/plugins:/opt/airflow/plugins
       - ./config:/opt/airflow/config
       - airflow-logs:/opt/airflow/logs
+      # Socket do Docker — necessário para o DockerOperator nas DAGs
       - /var/run/docker.sock:/var/run/docker.sock
+      # Código-fonte do projeto montado para bind mounts no DockerOperator
+      - ./processing:/opt/airflow/host/processing
+      - ./config:/opt/airflow/host/config
+      - ./utils:/opt/airflow/host/utils
+      - ./storage:/opt/airflow/host/storage
     command: webserver
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -423,7 +431,7 @@ services:
       start_period: 60s
     networks:
       - lakehouse-network
-  
+
   # =========================
   # AIRFLOW SCHEDULER
   # =========================
@@ -447,12 +455,19 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
       PYTHONPATH: /opt/airflow
+      AIRFLOW_PROJ_DIR: ${AIRFLOW_PROJ_DIR:-.}
     volumes:
       - ./orchestration/dags:/opt/airflow/dags
       - ./orchestration/plugins:/opt/airflow/plugins
       - ./config:/opt/airflow/config
       - airflow-logs:/opt/airflow/logs
+      # Socket do Docker — o scheduler é quem de fato dispara o DockerOperator
       - /var/run/docker.sock:/var/run/docker.sock
+      # Código-fonte do projeto — necessário para bind mounts no DockerOperator
+      - ./processing:/opt/airflow/host/processing
+      - ./config:/opt/airflow/host/config
+      - ./utils:/opt/airflow/host/utils
+      - ./storage:/opt/airflow/host/storage
     command: scheduler
     networks:
       - lakehouse-network
