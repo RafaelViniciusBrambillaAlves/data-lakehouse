@@ -20,11 +20,13 @@ def main():
         pipeline.run()
 
     except Exception:
-        logger.exception("Erro ao executar pipeline movies")
+        logger.exception("Erro no pipeline")
         raise
 
     finally:
+        
         spark.stop()
+
 
 if __name__ == '__main__':
     main()
