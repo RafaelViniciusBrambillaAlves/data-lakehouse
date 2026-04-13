@@ -70,12 +70,10 @@ def _schema_name_from_topic(topic: str) -> str:
 def _register_hive_table(spark: SparkSession, schema_name: str, path: str, batch_id: int) -> None:
     try:
         spark.sql(f"""
-            CREATE TABLE IF NOT EXISTS bronze.{schema_name}
+            CREATE OR REPLACE TABLE bronze.{schema_name}
             USING DELTA
             LOCATION '{path}'
         """)
-        
-        spark.sql(f"MSCK REPAIR TABLE bronze.{schema_name}")
 
         logger.info(f"[batch {batch_id}] Tabela bronze.{schema_name} registrada/atualizada no Hive")
     
@@ -119,7 +117,7 @@ def process_batch(df: DataFrame, batch_id: int, spark: SparkSession) -> None:
             .withColumn("_topic", F.lit(topic))
         )
 
-        path = f"{settings.BRONZE_BASE_PATH}/{schema_name}"
+        path = f"{settings.BRONZE_BASE_PATH}/streaming/{schema_name}"
 
         (
             parsed.write
@@ -152,13 +150,13 @@ def main():
 
     df = df.select("topic", "value")
 
-    spark.sql("CREATE DATABASE IF NOT EXISTS bronze")
+    spark.sql("CREATE DATABASE IF NOT EXISTS bronze LOCATION 's3a://lakehouse/bronze.db/'")
 
     # schemas não é mais passado como argumento — process_batch recarrega do disco
     query = (
         df.writeStream
         .foreachBatch(lambda df, batch_id: process_batch(df, batch_id, spark))
-        .option("checkpointLocation", f"{settings.CHECKPOINT_BASE_PATH}/bronze")
+        .option("checkpointLocation", f"{settings.CHECKPOINT_BASE_PATH}/bronze.db")
         .start()
     )
 

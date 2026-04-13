@@ -11,7 +11,7 @@ def load_to_bronze(df: DataFrame, table_name: str, spark: SparkSession) -> str:
         logger.warning(f"DataFrame da tabela {table_name} está vazio. Ignorando.")
         return None
 
-    path = f"s3a://bronze/batch/{table_name}"
+    path = f"s3a://lakehouse/bronze.db/batch/{table_name}"
 
     logger.info(f"Iniciando ingestão da tabela {table_name} na Bronze")
 
@@ -31,11 +31,11 @@ def load_to_bronze(df: DataFrame, table_name: str, spark: SparkSession) -> str:
     logger.info(f"Tabela {table_name} salva em {path}")
 
     # Registro no Hive Metastore
-    spark.sql("CREATE DATABASE IF NOT EXISTS bronze")
+    spark.sql("CREATE DATABASE IF NOT EXISTS bronze LOCATION 's3a://lakehouse/bronze.db/'")
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS bronze.{table_name}
         USING DELTA
-        LOCATION '{path}'
+        LOCATION '{path}'   
     """)
 
     logger.info(f"Tabela '{table_name}' registrada no Hive Metastore (bronze.{table_name})")
