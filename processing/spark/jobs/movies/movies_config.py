@@ -8,10 +8,10 @@ class MoviesConfig(BasePipelineConfig):
 CONFIG = MoviesConfig(
     name = "movies",
     database = "silver",
-    bronze_path = "s3a://bronze/batch/movies",
+    bronze_path = "s3a://lakehouse/bronze.db/batch/movies",
 
-    silver_cleaned_path = "s3a://silver/cleaned/movies",
-    silver_enriched_path = "s3a://silver/enriched/movie_genres",
+    silver_cleaned_path = "s3a://lakehouse/silver.db/cleaned/movies",
+    silver_enriched_path = "s3a://lakehouse/silver.db/enriched/movie_genres",
 
     table_cleaned = "silver.movies_cleaned" ,
     table_enriched = "silver.movie_genres",

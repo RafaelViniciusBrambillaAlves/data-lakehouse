@@ -9,10 +9,10 @@ class RatingsConfig(BasePipelineConfig):
 CONFIG = RatingsConfig(
     name = "ratings",
     database = "silver",
-    bronze_path = "s3a://bronze/streaming/ratings_for_additional_users",
+    bronze_path = "s3a://lakehouse/bronze.db/streaming/ratings_for_additional_users",
 
-    silver_cleaned_path = "s3a://silver/cleaned/ratings",
-    silver_enriched_path = "s3a://silver/enriched/rating_features",
+    silver_cleaned_path = "s3a://lakehouse/silver.db/cleaned/ratings",
+    silver_enriched_path = "s3a://lakehouse/silver.db/enriched/rating_features",
 
     table_cleaned = "silver.ratings_cleaned", 
     table_enriched = "silver.rating_features",

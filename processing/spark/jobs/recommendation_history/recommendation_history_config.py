@@ -8,10 +8,10 @@ class RecommendationHistoryConfig(BasePipelineConfig):
 CONFIG = RecommendationHistoryConfig(
     name = "recommendation_history",
     database = "silver",
-    bronze_path = "s3a://bronze/streaming/user_recommendation_history",
+    bronze_path = "s3a://lakehouse/bronze.db/streaming/user_recommendation_history",
     
-    silver_cleaned_path = "s3a://silver/cleaned/recommendation_history",
-    silver_enriched_path = "s3a://silver/enriched/recommendation_features",
+    silver_cleaned_path = "s3a://lakehouse/silver.db/cleaned/recommendation_history",
+    silver_enriched_path = "s3a://lakehouse/silver.db/enriched/recommendation_features",
 
     table_cleaned = "silver.recommendation_history_cleaned",
     table_enriched = "silver.recommendation_features",

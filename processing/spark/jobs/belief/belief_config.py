@@ -9,10 +9,10 @@ class BeliefConfig(BasePipelineConfig):
 CONFIG = BeliefConfig(
     name = "belief",
     database = "silver",
-    bronze_path = "s3a://bronze/batch/belief_data",
+    bronze_path = "s3a://lakehouse/bronze.db/batch/belief_data",
 
-    silver_cleaned_path = "s3a://silver/cleaned/belief",
-    silver_enriched_path = "s3a://silver/enriched/belief_features",
+    silver_cleaned_path = "s3a://lakehouse/silver.db/cleaned/belief",
+    silver_enriched_path = "s3a://lakehouse/silver.db/enriched/belief_features",
 
     table_cleaned = "silver.belief_cleaned",
     table_enriched = "silver.belief_features",

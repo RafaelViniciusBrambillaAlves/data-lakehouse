@@ -126,7 +126,7 @@ def make_silver_dag(
 
         check_bronze = S3KeySensor(
             task_id = "check_bronze",
-            bucket_name = "bronze",
+            bucket_name = "lakehouse",
             bucket_key = bronze_key,
             wildcard_match = True,
             aws_conn_id = AWS_CONN_ID,
@@ -135,7 +135,7 @@ def make_silver_dag(
             mode = "reschedule",
             soft_fail = True,
             doc_md = (
-                f"Verifica s3://bronze/{bronze_key}. "
+                f"Verifica s3://lakehouse/bronze.db/{bronze_key}. "
                 "Se vazio após 30 min, a run é pulada silenciosamente."
             )
         )
