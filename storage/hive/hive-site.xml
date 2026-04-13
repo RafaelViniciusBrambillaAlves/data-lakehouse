@@ -5,7 +5,6 @@
     <value>thrift://hive-metastore:9083</value>
   </property>
 
-  <!-- Metastore backend: PostgreSQL -->
   <property>
     <name>javax.jdo.option.ConnectionDriverName</name>
     <value>org.postgresql.Driver</value>
@@ -23,7 +22,6 @@
     <value>admin</value>
   </property>
 
-  <!-- Schema auto-criação -->
   <property>
     <name>datanucleus.schema.autoCreateAll</name>
     <value>true</value>
@@ -33,13 +31,11 @@
     <value>false</value>
   </property>
 
-  <!-- Warehouse no MinIO -->
   <property>
     <name>hive.metastore.warehouse.dir</name>
-    <value>s3a://lakehouse/warehouse</value>
+    <value>s3a://lakehouse/</value>
   </property>
 
-  <!-- S3A / MinIO -->
   <property>
     <name>fs.s3a.endpoint</name>
     <value>http://minio:9000</value>
@@ -68,6 +64,4 @@
     <name>fs.s3a.aws.credentials.provider</name>
     <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
   </property>
-  
-
 </configuration>

@@ -1,0 +1,31 @@
+name: lakehouse_gold
+version: "1.0.0"
+config-version: 2
+
+profile: lakehouse
+
+model-paths:  ["models"]
+test-paths:   ["tests"]
+macro-paths:  ["macros"]
+target-path:  "target"
+clean-targets: ["target", "dbt_packages"]
+
+on-run-start:
+  - "CREATE SCHEMA IF NOT EXISTS hive.gold"
+
+
+models:
+  +materialized: view
+
+  staging:
+    +database: delta
+    +schema: silver
+
+  marts:
+    +materialized: table
+    +database: hive
+    +schema: gold
+
+vars:
+  silver_db: delta
+  silver_schema: silver

@@ -8,5 +8,4 @@ until nc -z postgres-lakehouse 5432; do
 done
 echo "PostgreSQL disponível. Iniciando Hive Metastore..."
 
-# Chama o entrypoint original da imagem apache/hive
 exec /bin/bash /entrypoint.sh

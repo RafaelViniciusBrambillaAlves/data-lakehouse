@@ -1,0 +1,141 @@
+version: 2
+
+# ---------------------------------------------------------------------------
+# Silver layer sources — lidos via catálogo DELTA do Trino
+# O catálogo 'delta' usa o conector delta_lake que suporta Delta Lake nativo
+# ---------------------------------------------------------------------------
+
+sources:
+
+  - name: silver
+    description: "Tabelas Delta Lake produzidas pelo pipeline Spark silver."
+    database: delta         
+    schema: silver           
+    tables:
+
+
+      # MOVIES
+      - name: movies_cleaned
+        description: "Um registro por filme com título, ano e string de gêneros."
+        columns:
+          - name: movie_id
+            description: "Chave natural do filme"
+            tests: [not_null, unique]
+          - name: title
+            tests: [not_null]
+          - name: release_year
+            tests: [not_null]
+          - name: genres_raw
+          - name: ingestion_timestamp
+          - name: source
+          - name: processed_timestamp
+
+      - name: movie_genres
+        description: "Tabela de gêneros explodida - uma linha por (movie_id, genre)."
+        columns:
+          - name: movie_id
+            tests: [not_null]
+          - name: genre
+            tests: [not_null]
+
+
+      # RATINGS
+      - name: ratings_cleaned
+        description: "Ratings de usuários via Kafka"
+        columns:
+          - name: user_id
+            tests: [not_null]
+          - name: movie_id
+            tests: [not_null]
+          - name: rating
+          - name: event_timestamp
+          - name: ingestion_timestamp
+          - name: source_system
+          - name: source_topic
+          - name: processed_timestamp
+
+
+      # BELIEF (USER x MOVIE SIGNALS)
+      - name: belief_cleaned
+        description: "Eventos de interação usuário-filme com ratings do sistema."
+        columns:
+          - name: user_id
+          - name: movie_id
+          - name: is_seen
+          - name: watch_date
+          - name: user_rating
+          - name: predicted_rating
+          - name: user_certainty
+          - name: system_rating
+          - name: event_timestamp
+          - name: movie_idx
+          - name: source_type
+          - name: ingestion_timestamp
+          - name: source_system
+          - name: processed_timestamp
+
+      - name: belief_features
+        description: "Features derivadas de interação usuário-filme."
+        columns:
+          - name: user_id
+          - name: movie_id
+          - name: is_seen
+          - name: has_watched
+          - name: user_rating
+          - name: system_rating
+          - name: rating_diff
+          - name: user_certainty
+          - name: is_high_confidence
+          - name: event_timestamp
+          - name: event_date
+
+
+      # RECOMMENDATION
+      - name: recommendation_history_cleaned
+        description: "Histórico de recomendações geradas para usuários."
+        columns:
+          - name: user_id
+          - name: movie_id
+          - name: predicted_rating
+          - name: event_timestamp
+          - name: ingestion_timestamp
+          - name: source_system
+          - name: source_topic
+          - name: processed_timestamp
+
+      - name: recommendation_features
+        description: "Features de recomendação com classificação de score."
+        columns:
+          - name: user_id
+          - name: movie_id
+          - name: predicted_rating
+          - name: predicted_rating_category
+          - name: is_high_score
+          - name: predicted_rating_bucket
+          - name: event_timestamp
+          - name: event_date
+
+
+      # ELICITATION
+      - name: elicitation_cleaned
+        description: "Eventos de exposição/elicitação de filmes ao longo do tempo."
+        columns:
+          - name: movie_id
+          - name: month_idx
+          - name: source_type
+          - name: event_timestamp
+          - name: ingestion_timestamp
+          - name: source_system
+          - name: processed_timestamp
+
+      - name: elicitation_features
+        description: "Features de elicitação com categorias e agrupamentos temporais."
+        columns:
+          - name: movie_id
+          - name: month_idx
+          - name: source_type
+          - name: source_category
+          - name: month_group
+          - name: event_timestamp
+          - name: is_recent
+          - name: event_date

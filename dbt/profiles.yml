@@ -1,0 +1,15 @@
+lakehouse:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      method: none
+      user: dbt
+      host: trino
+      port: 8085
+      database: hive
+      schema: gold
+      threads: 4
+      http_scheme: http
+      session_properties:
+        query_max_run_time: "10m"
