@@ -15,16 +15,26 @@ on-run-start:
 
 
 models:
-  +materialized: view
-
+  
   staging:
+    +materialized: view
     +database: delta
-    +schema: silver
+    +schema: gold
+    +tags: ["staging"]
 
   marts:
     +materialized: table
     +database: hive
     +schema: gold
+    +tags: ["marts"]
+
+  core:
+    +materialized: view
+    +tags: ["intermediate"]
+
+  analytics:
+    +materialized: view
+    +tags: ["gold"]
 
 vars:
   silver_db: delta
