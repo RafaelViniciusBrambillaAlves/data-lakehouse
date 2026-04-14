@@ -10,3 +10,7 @@ __pycache__
 .env
 README_DATA.txt
 .ipynb_checkpoints
+dbt/target/
+dbt.log
+*.gpickle
+*.msgpack
