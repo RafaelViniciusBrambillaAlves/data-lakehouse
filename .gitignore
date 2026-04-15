@@ -1,6 +1,5 @@
 test.txt
 *.zip
-*.csv
 *.bkp
 *.bin
 *.json
@@ -14,3 +13,4 @@ dbt/target/
 dbt.log
 *.gpickle
 *.msgpack
+*.csv
