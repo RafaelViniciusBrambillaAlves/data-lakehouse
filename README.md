@@ -89,7 +89,8 @@ O projeto foi desenvolvido com base no desafio proposto pelo canal do YouTube ab
 
 ## 📁 Estrutura do Projeto
 
-```
+```bash
+
 data-lakehouse/
 ├── docker-compose.yml            # Definição de todos os serviços
 ├── .env.example                  # Template de variáveis de ambiente
@@ -215,6 +216,7 @@ data-lakehouse/
     └── trino/
         ├── catalog/
         └── config/
+
 ```
 
 ---
