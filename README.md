@@ -615,6 +615,5 @@ Se você gostou do projeto? Tem alguma dica, feedback ou oportunidade? Vou gosta
 💼 LinkedIn: https://www.linkedin.com/in/rafaelviniciusbrambillaalves/
 
 Feito para fins de **aprendizado e evolução técnica em Engenharia de Dados e Desenvolvimento de Software**
-Qualquer Duiva
 
 </div>
