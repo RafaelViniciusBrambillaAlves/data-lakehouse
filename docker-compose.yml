@@ -548,12 +548,120 @@ services:
     networks:
       - lakehouse-network
   
+
+  # =========================
+  # POSTGRES — metadados do Metabase
+  # Banco dedicado: evita conflito com postgres-source e postgres-airflow.
+  # =========================
+  postgres-metabase:
+    image: postgres:15
+    container_name: postgres-metabase
+    restart: always
+    environment:
+      POSTGRES_DB: metabase
+      POSTGRES_USER: metabase
+      POSTGRES_PASSWORD: ${METABASE_DB_PASSWORD:-metabase}
+    volumes:
+      - postgres-metabase-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase -d metabase"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Metabase DB não precisa estar exposto para o host
+    networks:
+      - lakehouse-network
+
+  # =========================
+  # METABASE  (BI / Visualization)
+  # UI: http://localhost:3000
+  #
+  # Conecta ao Trino via driver Starburst (instalado no Dockerfile).
+  # Configuração inicial manual em http://localhost:3000/setup:
+  #   Database type : Starburst (Trino)
+  #   Host          : trino
+  #   Port          : 8085
+  #   Catalog       : hive          ← catálogo configurado no Trino
+  #   Schema        : gold          ← camada analítica do lakehouse
+  #   Username       : admin        ← qualquer string (Trino sem auth)
+  # =========================
+  metabase:
+    # image: metabase/metabase:v0.50.4
+    build:
+      context: .
+      dockerfile: infra/docker/metabase/Dockerfile
+    container_name: metabase
+    restart: always
+    depends_on:
+      postgres-metabase:
+        condition: service_healthy
+      trino:
+        condition: service_healthy
+    environment:
+      # --- banco de metadados do Metabase ---
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres-metabase
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: metabase
+      MB_DB_PASS: ${METABASE_DB_PASSWORD:-metabase}
+ 
+      # --- internacionalização ---
+      MB_SITE_LOCALE: pt
+      JAVA_TIMEZONE: America/Sao_Paulo
+ 
+      # --- segurança (troque em produção!) ---
+      MB_ENCRYPTION_SECRET_KEY: ${METABASE_SECRET_KEY:-changeme-32-chars-minimum-secret}
+ 
+      # --- performance da JVM ---
+      JAVA_OPTS: >-
+        -Xmx1g
+        -Xms256m
+        -XX:+UseG1GC
+        -Dfile.encoding=UTF-8
+ 
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persiste logs e arquivos temporários gerados pelo Metabase
+      - metabase-data:/metabase-data
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: "1.0"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+    networks:
+      - lakehouse-network  
+
+  # =========================
+  # Metabase Setup
+  # Configuração incial do Metabase, login e conectando com trivo.
+  # =========================
+  metabase-setup:
+    image: curlimages/curl:latest
+    container_name: metabase-setup
+    volumes:
+      - ./infra/docker/metabase/setup.sh:/setup.sh
+    entrypoint: ["/bin/sh", "-c", "sh /setup.sh"]
+    networks:
+      - lakehouse-network
+
 volumes:
   minio-data:
     driver: local
   postgres-airflow-data:
     driver: local
   airflow-logs:
+    driver: local
+  postgres-metabase-data:
+    driver: local
+  metabase-data:
     driver: local
 
 
