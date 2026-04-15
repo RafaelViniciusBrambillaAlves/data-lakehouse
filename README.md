@@ -41,9 +41,9 @@ O projeto foi desenvolvido com base no desafio proposto pelo canal do YouTube ab
 
 ## 🏛️ Arquitetura da Solução
 
-```
 
 ![Arquitetura do Lakehouse](./images/image.png)
+
 
 > 💡 Para uma visualização interativa da arquitetura, consulte o arquivo [`lakehouse.excalidraw`](./lakehouse.excalidraw) na raiz do projeto.
 
