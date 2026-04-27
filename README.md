@@ -1,17 +1,14 @@
 # 🏗️ Data Lakehouse - End-to-End com Tecnologias Open-Source
 
-<div align="center">
-
-![Status](https://img.shields.io/badge/status-concluído-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![Docker](https://img.shields.io/badge/Docker-✓-2496ED?logo=docker&logoColor=white)
-![Spark](https://img.shields.io/badge/Apache%20Spark-✓-E25A1C?logo=apachespark&logoColor=white)
-![Kafka](https://img.shields.io/badge/Apache%20Kafka-✓-231F20?logo=apachekafka&logoColor=white)
-![Airflow](https://img.shields.io/badge/Apache%20Airflow-✓-017CEE?logo=apacheairflow&logoColor=white)
-![dbt](https://img.shields.io/badge/dbt-✓-FF694B?logo=dbt&logoColor=white)
-![Delta Lake](https://img.shields.io/badge/Delta%20Lake-✓-003366)
-
-</div>
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![PySpark](https://img.shields.io/badge/PySpark-FDEE21?style=for-the-badge&logo=apachespark&logoColor=black)
+![Kafka](https://img.shields.io/badge/Kafka-000000?style=for-the-badge&logo=apachekafka&logoColor=white)
+![Airflow](https://img.shields.io/badge/Airflow-017CEE?style=for-the-badge&logo=apacheairflow&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![dbt](https://img.shields.io/badge/dbt-FF694B?style=for-the-badge&logo=dbt&logoColor=white)
+![MinIO](https://img.shields.io/badge/MinIO-C72E49?style=for-the-badge&logo=minio&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![Data_Lakehouse](https://img.shields.io/badge/Data_Lakehouse-0A66C2?style=for-the-badge)
 
 ---
 
