@@ -9,7 +9,8 @@
 ![MinIO](https://img.shields.io/badge/MinIO-C72E49?style=for-the-badge&logo=minio&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 ![Data_Lakehouse](https://img.shields.io/badge/Data_Lakehouse-0A66C2?style=for-the-badge)
-
+![Delta Lake](https://img.shields.io/badge/Delta_Lake-00ADD8?style=for-the-badge)
+![Medallion Architecture](https://img.shields.io/badge/Medallion_Architecture-6A5ACD?style=for-the-badge)
 ---
 
 ## 📋 Descrição do Projeto
